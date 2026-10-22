@@ -31,11 +31,61 @@ import { dbService } from './src/server/db.ts';
 
 // Helper to sanitize Gemini response text
 function getCleanText(response: any): string {
-  if (!response || !response.text) {
-    return '';
-  }
-  return response.text;
+  if (!response) return '';
+  if (typeof response === 'string') return response;
+  if (typeof response.text === 'string') return response.text;
+  if (typeof response.text === 'function') return response.text();
+  return '';
 }
+
+/**
+ * Safe JSON parser for AI responses:
+ * - Strips ```json and ``` markdown code fences
+ * - Finds first '{' and last '}' (or '[' and ']') to isolate the exact JSON substring
+ * - Wraps JSON.parse in try/catch to log friendly warning instead of crashing
+ */
+function safeParseGeminiJson<T = any>(response: any, fallback: T | null = null): T | null {
+  try {
+    let rawText = '';
+    if (typeof response === 'string') {
+      rawText = response;
+    } else if (response && typeof response.text === 'string') {
+      rawText = response.text;
+    } else if (response && typeof response.text === 'function') {
+      rawText = response.text();
+    } else if (response && response.candidates?.[0]?.content?.parts?.[0]?.text) {
+      rawText = response.candidates[0].content.parts[0].text;
+    }
+
+    let text = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+
+    // Find the first { and last }
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      text = text.substring(firstBrace, lastBrace + 1);
+    } else {
+      // Check for array payloads
+      const firstBracket = text.indexOf('[');
+      const lastBracket = text.lastIndexOf(']');
+      if (firstBracket !== -1 && lastBracket !== -1) {
+        text = text.substring(firstBracket, lastBracket + 1);
+      }
+    }
+
+    try {
+      const data = JSON.parse(text);
+      return data;
+    } catch (e) {
+      console.log("AI returned text, not JSON:", text);
+      return fallback;
+    }
+  } catch (err) {
+    console.log("Error in safeParseGeminiJson:", err);
+    return fallback;
+  }
+}
+
 
 // Helper to extract authenticated user
 function getAuthUser(req: Request) {
@@ -246,8 +296,10 @@ Provide a structured, deep academic synthesis in valid JSON format matching this
       },
     });
 
-    const raw = getCleanText(response);
-    const parsed = JSON.parse(raw);
+    const parsed = safeParseGeminiJson(response);
+    if (!parsed) {
+      return res.status(502).json({ error: 'AI returned text, not structured JSON. Please try synthesizing again.' });
+    }
     res.json(parsed);
   } catch (error: any) {
     console.error('Error in /api/academic/synthesize:', error);
@@ -308,8 +360,10 @@ Return valid JSON with this exact structure:
       },
     });
 
-    const raw = getCleanText(response);
-    const parsed = JSON.parse(raw);
+    const parsed = safeParseGeminiJson(response);
+    if (!parsed) {
+      return res.status(502).json({ error: 'AI returned text, not JSON for citation metadata. Please try again.' });
+    }
     res.json(parsed);
   } catch (error: any) {
     console.error('Error in /api/academic/citations:', error);
@@ -391,8 +445,10 @@ Respond with valid JSON:
       },
     });
 
-    const raw = getCleanText(response);
-    const parsed = JSON.parse(raw);
+    const parsed = safeParseGeminiJson(response);
+    if (!parsed) {
+      return res.status(502).json({ error: 'AI returned text, not JSON for proposal. Please try again.' });
+    }
     res.json(parsed);
   } catch (error: any) {
     console.error('Error in /api/academic/proposal:', error);
@@ -459,8 +515,10 @@ Respond with valid JSON:
       },
     });
 
-    const raw = getCleanText(response);
-    const parsed = JSON.parse(raw);
+    const parsed = safeParseGeminiJson(response);
+    if (!parsed) {
+      return res.status(502).json({ error: 'AI returned text, not JSON for polished draft. Please try again.' });
+    }
     res.json(parsed);
   } catch (error: any) {
     console.error('Error in /api/academic/polish:', error);
@@ -516,8 +574,10 @@ Respond with valid JSON:
       },
     });
 
-    const raw = getCleanText(response);
-    const parsed = JSON.parse(raw);
+    const parsed = safeParseGeminiJson(response);
+    if (!parsed) {
+      return res.status(502).json({ error: 'AI returned text, not JSON for formula explanation. Please try again.' });
+    }
     res.json(parsed);
   } catch (error: any) {
     console.error('Error in /api/academic/formula:', error);
@@ -585,8 +645,10 @@ Generate high-yield materials in valid JSON:
       },
     });
 
-    const raw = getCleanText(response);
-    const parsed = JSON.parse(raw);
+    const parsed = safeParseGeminiJson(response);
+    if (!parsed) {
+      return res.status(502).json({ error: 'AI returned text, not JSON for study cards. Please try again.' });
+    }
     res.json(parsed);
   } catch (error: any) {
     console.error('Error in /api/academic/study:', error);
@@ -839,8 +901,10 @@ Respond in valid JSON with this exact schema:
       },
     });
 
-    const raw = getCleanText(response);
-    const parsed = JSON.parse(raw);
+    const parsed = safeParseGeminiJson(response);
+    if (!parsed) {
+      return res.status(502).json({ error: 'The AI model returned text instead of structured project material. Please click Generate Material again.' });
+    }
     parsed.selectedScope = selectedScope;
 
     // If user is authenticated, automatically save the document to their private vault!

@@ -49,8 +49,13 @@ export default function App() {
     return localStorage.getItem('scholarassist_token_v1');
   });
   const [user, setUser] = useState<any | null>(() => {
-    const raw = localStorage.getItem('scholarassist_user_v1');
-    return raw ? JSON.parse(raw) : null;
+    try {
+      const raw = localStorage.getItem('scholarassist_user_v1');
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      console.log("Could not parse user session:", e);
+      return null;
+    }
   });
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
