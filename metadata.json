@@ -1,0 +1,8 @@
+{
+  "name": "ScholarAssist - Academic AI Workspace",
+  "description": "Comprehensive academic AI assistant for higher-institution students: literature review synthesis, citation formatting, research proposals, thesis structuring, and study aids.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
