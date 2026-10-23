@@ -1,0 +1,82 @@
+{
+  "users": [
+    {
+      "id": "user_admin_001",
+      "email": "admin@scholarassist.org",
+      "passwordHash": "df563fe0b0e4d285a05655deda2949f6b0eec053f0da190ebb31855e1236ae79c648273d9ce7ff2b29d72910848f78bfc0dd45dae25441ce704d8b3b5a2e8d80",
+      "salt": "10dbef06cd0295461f5bd011f1cbbadf",
+      "fullName": "ScholarAssist Global Administrator",
+      "country": "United States",
+      "institution": "International Academic Consortium",
+      "institutionType": "Research Institute / Postgraduate School",
+      "degreeLevel": "Doctoral / PhD Dissertation",
+      "department": "Academic Research & Data Systems",
+      "credits": 9999,
+      "hasUsedFreeCredits": true,
+      "role": "admin",
+      "subscription": {
+        "planId": "institutional-admin",
+        "planName": "Platform Administrator Pass",
+        "status": "active",
+        "expiresAt": "2099-12-31T23:59:59.000Z",
+        "paymentGateway": "free",
+        "reference": "SYSTEM_ADMIN_PERMIT"
+      },
+      "createdAt": "2026-10-22T05:08:40.081Z",
+      "updatedAt": "2026-10-22T05:08:40.081Z"
+    },
+    {
+      "id": "usr_1792646327759_4af8e6ae",
+      "email": "yunusj791@gmail.com",
+      "passwordHash": "29868ff1113bfe1b7e592dbb1826d2b09285a5cfb4d646e40c1495e0d7ccffdc74668cec9b9e5c5975eb33f54a182fbcae3c5574fdcb6d426ee0e2a4e522bc2b",
+      "salt": "cfd4563f2ebbb048f31eff653517252a",
+      "fullName": "yunus muhammad",
+      "country": "Nigeria",
+      "institution": "university of ilorin",
+      "institutionType": "University",
+      "degreeLevel": "Undergraduate / Bachelor’s Degree (BSc, BA, BEng, LLB)",
+      "department": "Computer Science & IT",
+      "credits": 9999,
+      "hasUsedFreeCredits": false,
+      "role": "admin",
+      "subscription": {
+        "planId": "platform-owner",
+        "planName": "Platform Owner Pass",
+        "status": "active",
+        "expiresAt": "2099-12-31T23:59:59.000Z",
+        "paymentGateway": "free",
+        "reference": "OWNER_PERMIT"
+      },
+      "createdAt": "2026-10-22T05:18:47.759Z",
+      "updatedAt": "2026-10-22T05:18:47.759Z"
+    }
+  ],
+  "sessions": {},
+  "documents": [],
+  "transactions": [],
+  "platformConfig": {
+    "pricing": {
+      "weeklyPriceUSD": 1.49,
+      "monthlyPriceUSD": 3.99,
+      "freeTierCredits": 3
+    },
+    "supportedGateways": {
+      "paystack": {
+        "enabled": true,
+        "shopUrl": "https://paystack.shop/pay/q0bp-vzftt",
+        "weeklyShopUrl": "https://paystack.shop/pay/ybdmctgjwr",
+        "monthlyShopUrl": "https://paystack.shop/pay/q0bp-vzftt",
+        "isLive": false
+      },
+      "stripe": {
+        "enabled": true,
+        "isLive": false
+      },
+      "paypal": {
+        "enabled": true,
+        "isLive": false
+      }
+    },
+    "systemNotice": "ScholarAssist worldwide servers active. Global research generation running."
+  }
+}

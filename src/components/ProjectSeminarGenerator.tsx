@@ -32,16 +32,30 @@ import {
   GraduationCap,
   X,
   Compass,
-  ArrowRight
+  ArrowRight,
+  BarChart3,
+  LayoutGrid,
+  Maximize2,
+  PlusCircle,
+  Image as ImageIcon,
+  Eye
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { FullProjectResult, InstitutionLevel, JournalSource } from '../types/academic';
+import { 
+  FullProjectResult, 
+  InstitutionLevel, 
+  JournalSource, 
+  AcademicTable, 
+  AcademicDiagram, 
+  AcademicFigure 
+} from '../types/academic';
 import { 
   generateProjectFullText, 
   downloadProjectAsWord, 
   downloadChapterAsWord,
   downloadProjectAsMarkdown,
-  downloadCustomTextAsWord 
+  downloadCustomTextAsWord,
+  downloadSvgAsFile
 } from '../utils/projectDownloader';
 import { saveItemToVault } from '../utils/vault';
 import { CountryInfo, COUNTRIES } from '../data/countries';
@@ -192,10 +206,19 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
   const [showDataInput, setShowDataInput] = useState(false);
   const [empiricalData, setEmpiricalData] = useState('');
   
-  // View mode & navigation (including 'journals' tab for good peer-reviewed sources)
-  const [activeTab, setActiveTab] = useState<'full' | 'ch1' | 'ch2' | 'ch3' | 'ch4' | 'ch5' | 'ref' | 'journals'>('full');
+  // View mode & navigation (including 'diagrams', 'tables', 'charts', 'appendices', and 'journals' tabs)
+  const [activeTab, setActiveTab] = useState<'full' | 'ch1' | 'ch2' | 'ch3' | 'ch4' | 'ch5' | 'ref' | 'journals' | 'diagrams' | 'tables' | 'charts' | 'appendices'>('full');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  // Dedicated Visual & Diagram Generator state
+  const [isVisualGeneratorOpen, setIsVisualGeneratorOpen] = useState(false);
+  const [generatingVisual, setGeneratingVisual] = useState(false);
+  const [visualType, setVisualType] = useState<'diagram' | 'table' | 'figure' | 'chart'>('diagram');
+  const [visualSubType, setVisualSubType] = useState('conceptual_framework');
+  const [visualChapter, setVisualChapter] = useState<'chapter1' | 'chapter2' | 'chapter3' | 'chapter4' | 'chapter5'>('chapter2');
+  const [visualCustomPrompt, setVisualCustomPrompt] = useState('');
+  const [activeZoomDiagram, setActiveZoomDiagram] = useState<{ title: string; figureNumber: string; svgCode?: string; sourceNote?: string; description?: string } | null>(null);
 
   // Live in-browser editing state (Requirement 9)
   const [isEditing, setIsEditing] = useState(false);
@@ -281,9 +304,9 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
       return;
     }
 
-    // Check if user is authenticated
-    if (!user && onRequireAuth) {
-      onRequireAuth();
+    // If user has an account with exhausted credits and not pro, show pricing
+    if (user && user.credits <= 0 && !isPro && onRequirePricing) {
+      onRequirePricing();
       return;
     }
 
@@ -331,10 +354,22 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
       const data: FullProjectResult = await res.json();
 
       // If user already had a project and is generating/refining a single chapter, merge it cleanly!
-      if (project && scopeToUse !== 'full' && scopeToUse.startsWith('chapter')) {
+      if (project && scopeToUse !== 'full') {
         const merged: FullProjectResult = {
           ...project,
           [scopeToUse]: (data as any)[scopeToUse],
+          tables: [
+            ...(project.tables || []),
+            ...(data.tables || [])
+          ].filter((v, i, a) => a.findIndex(t => t.id === v.id || t.tableNumber === v.tableNumber) === i),
+          diagrams: [
+            ...(project.diagrams || []),
+            ...(data.diagrams || [])
+          ].filter((v, i, a) => a.findIndex(t => t.id === v.id || t.figureNumber === v.figureNumber) === i),
+          figures: [
+            ...(project.figures || []),
+            ...(data.figures || [])
+          ].filter((v, i, a) => a.findIndex(t => t.id === v.id || t.figureNumber === v.figureNumber) === i),
           references: Array.from(new Set([...project.references, ...(data.references || [])])),
           journalSources: [
             ...(project.journalSources || []),
@@ -537,6 +572,94 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleCopySvg = (id: string, code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedKey(id);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleCopyTableMarkdown = (table: AcademicTable) => {
+    let md = `### ${table.tableNumber}: ${table.title}\n\n`;
+    md += table.headers.join(' | ') + '\n';
+    md += table.headers.map(() => '---').join(' | ') + '\n';
+    table.rows.forEach(r => {
+      md += r.join(' | ') + '\n';
+    });
+    if (table.note) md += `\n*${table.note}*\n`;
+    navigator.clipboard.writeText(md);
+    setCopiedKey(`${table.id}-md`);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleCopyTableHtml = (table: AcademicTable) => {
+    const html = `
+<table border="0" cellpadding="6" cellspacing="0" style="width: 100%; border-top: 2px solid black; border-bottom: 2px solid black; border-collapse: collapse; font-family: 'Times New Roman', serif; font-size: 11pt;">
+  <caption style="text-align: left; font-weight: bold; margin-bottom: 4pt;">${table.tableNumber}: <span style="font-style: italic; font-weight: normal;">${table.title}</span></caption>
+  <thead>
+    <tr style="border-bottom: 1px solid black; text-align: left;">
+      ${table.headers.map(h => `<th style="padding: 6pt; border-bottom: 1px solid black;">${h}</th>`).join('')}
+    </tr>
+  </thead>
+  <tbody>
+    ${table.rows.map(row => `
+      <tr>
+        ${row.map(cell => `<td style="padding: 4pt 6pt;">${cell}</td>`).join('')}
+      </tr>
+    `).join('')}
+  </tbody>
+</table>
+${table.note ? `<p style="font-size: 9.5pt; font-style: italic; margin-top: 4pt;">${table.note}</p>` : ''}
+    `.trim();
+    navigator.clipboard.writeText(html);
+    setCopiedKey(`${table.id}-html`);
+    setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleGenerateVisual = async () => {
+    if (!project) return;
+    setGeneratingVisual(true);
+    try {
+      const res = await fetch('/api/academic/generate-visual', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          visualType,
+          subType: visualSubType,
+          topic: project.topicTitle,
+          department: project.department,
+          chapter: visualChapter,
+          prompt: visualCustomPrompt
+        })
+      });
+      const data = await res.json();
+      if (data.status && data.item) {
+        if (visualType === 'table') {
+          const updatedTables = [...(project.tables || []), data.item];
+          setProject({ ...project, tables: updatedTables });
+          setActiveTab('tables');
+        } else if (visualType === 'chart') {
+          const updatedCharts = [...(project.charts || []), data.item];
+          setProject({ ...project, charts: updatedCharts });
+          setActiveTab('charts');
+        } else {
+          const updatedDiagrams = [...(project.diagrams || []), data.item];
+          setProject({ ...project, diagrams: updatedDiagrams });
+          setActiveTab('diagrams');
+        }
+        setIsVisualGeneratorOpen(false);
+        setVisualCustomPrompt('');
+        confetti({ particleCount: 40, spread: 60 });
+      }
+    } catch (err: any) {
+      console.error('Failed to generate visual:', err);
+    } finally {
+      setGeneratingVisual(false);
+    }
   };
 
   const handleDownloadWord = () => {
@@ -1118,13 +1241,17 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
           <div className="px-5 py-2.5 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between gap-2 overflow-x-auto scrollbar-none">
             <div className="flex items-center gap-1.5">
               {[
-                { id: 'full', label: 'Full Project View' },
+                { id: 'full', label: 'Full 5-Chapter Project' },
                 { id: 'ch1', label: 'Chapter 1: Intro' },
                 { id: 'ch2', label: 'Chapter 2: Lit Review' },
                 { id: 'ch3', label: 'Chapter 3: Methodology' },
                 { id: 'ch4', label: 'Chapter 4: Data & Findings' },
                 { id: 'ch5', label: 'Chapter 5: Summary & Recs' },
-                { id: 'journals', label: '📚 Journal Sources Audit' },
+                { id: 'diagrams', label: '🎨 Diagrams & Models' },
+                { id: 'tables', label: '📊 Empirical Tables' },
+                { id: 'charts', label: '📈 Bar Charts & Statistics' },
+                { id: 'appendices', label: '📝 Survey & Appendices' },
+                { id: 'journals', label: '📚 Journal Audit (2023-2026)' },
                 { id: 'ref', label: 'APA 7th References' },
               ].map((tab) => (
                 <button
@@ -1142,6 +1269,14 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setIsVisualGeneratorOpen(true)}
+                className="px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/25 transition cursor-pointer shrink-0"
+                title="Generate an academic diagram, flowchart, or APA table on-demand"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                <span>+ Generate Diagram / Table</span>
+              </button>
               {isEditing && (
                 <button
                   onClick={handleSaveEdits}
@@ -1330,6 +1465,34 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
                       <p className="text-slate-300 text-justify leading-relaxed">{project.chapter2.conceptualFramework}</p>
                     </div>
 
+                    {project.diagrams?.filter(d => d.chapter === 'chapter2').map((diag, dIdx) => (
+                      <div key={dIdx} className="my-4 p-4 bg-slate-900/90 rounded-xl border border-slate-800 shadow-inner">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold text-indigo-300 font-sans">{diag.figureNumber}: {diag.title}</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setActiveZoomDiagram(diag)}
+                              className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                            >
+                              <Maximize2 className="h-3 w-3 text-indigo-400" /> Zoom
+                            </button>
+                            <button
+                              onClick={() => downloadSvgAsFile(diag.svgCode, diag.figureNumber, diag.title)}
+                              className="text-[11px] px-2 py-0.5 bg-emerald-900/30 text-emerald-300 rounded border border-emerald-700/50 hover:bg-emerald-800/40 flex items-center gap-1 cursor-pointer"
+                            >
+                              <Download className="h-3 w-3" /> SVG
+                            </button>
+                          </div>
+                        </div>
+                        <div 
+                          className="w-full flex items-center justify-center [&>svg]:max-h-[300px] [&>svg]:w-full [&>svg]:h-auto cursor-pointer"
+                          onClick={() => setActiveZoomDiagram(diag)}
+                          dangerouslySetInnerHTML={{ __html: diag.svgCode }}
+                        />
+                        {diag.sourceNote && <p className="text-[10px] text-slate-400 italic text-center mt-2 font-serif-academic">{diag.sourceNote}</p>}
+                      </div>
+                    ))}
+
                     <div>
                       <h4 className="font-bold text-slate-200 mb-1">2.2 Theoretical Framework</h4>
                       <p className="text-slate-300 text-justify leading-relaxed">{project.chapter2.theoreticalFramework}</p>
@@ -1397,6 +1560,69 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
                       </div>
                     </div>
 
+                    {/* Chapter 3 Empirical Table & Methodology Diagram */}
+                    {project.tables?.filter(t => t.chapter === 'chapter3').map((tbl, tIdx) => (
+                      <div key={tIdx} className="my-4 p-4 bg-slate-900/90 rounded-xl border border-slate-800">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div>
+                            <span className="text-xs font-bold text-indigo-300 font-serif-academic block">{tbl.tableNumber}</span>
+                            <span className="text-xs italic text-slate-200 font-serif-academic">{tbl.title}</span>
+                          </div>
+                          <button
+                            onClick={() => handleCopyTableHtml(tbl)}
+                            className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                          >
+                            <Copy className="h-3 w-3 text-emerald-400" /> Copy Table
+                          </button>
+                        </div>
+                        <div className="overflow-x-auto my-2">
+                          <table className="w-full text-xs font-serif-academic border-t-2 border-b-2 border-slate-400 border-collapse text-left">
+                            <thead>
+                              <tr className="border-b border-slate-500 bg-slate-950/40">
+                                {tbl.headers.map((h, i) => <th key={i} className="py-2 px-3 font-bold text-slate-200">{h}</th>)}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/60">
+                              {tbl.rows.map((r, i) => (
+                                <tr key={i} className="hover:bg-slate-850/40">
+                                  {r.map((c, j) => <td key={j} className="py-1.5 px-3 text-slate-300">{c}</td>)}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {tbl.note && <p className="text-[10px] font-serif-academic italic text-slate-400">{tbl.note}</p>}
+                      </div>
+                    ))}
+
+                    {project.diagrams?.filter(d => d.chapter === 'chapter3').map((diag, dIdx) => (
+                      <div key={dIdx} className="my-4 p-4 bg-slate-900/90 rounded-xl border border-slate-800">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold text-indigo-300 font-sans">{diag.figureNumber}: {diag.title}</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setActiveZoomDiagram(diag)}
+                              className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                            >
+                              <Maximize2 className="h-3 w-3 text-indigo-400" /> Zoom
+                            </button>
+                            <button
+                              onClick={() => downloadSvgAsFile(diag.svgCode, diag.figureNumber, diag.title)}
+                              className="text-[11px] px-2 py-0.5 bg-emerald-900/30 text-emerald-300 rounded border border-emerald-700/50 hover:bg-emerald-800/40 flex items-center gap-1 cursor-pointer"
+                            >
+                              <Download className="h-3 w-3" /> SVG
+                            </button>
+                          </div>
+                        </div>
+                        <div 
+                          className="w-full flex items-center justify-center [&>svg]:max-h-[300px] [&>svg]:w-full [&>svg]:h-auto cursor-pointer"
+                          onClick={() => setActiveZoomDiagram(diag)}
+                          dangerouslySetInnerHTML={{ __html: diag.svgCode }}
+                        />
+                        {diag.sourceNote && <p className="text-[10px] text-slate-400 italic text-center mt-2 font-serif-academic">{diag.sourceNote}</p>}
+                      </div>
+                    ))}
+
                     <div>
                       <h4 className="font-bold text-slate-200 mb-1">3.4 Research Instrumentation & Validation</h4>
                       <p className="text-slate-300 text-justify leading-relaxed">{project.chapter3.instrumentationAndValidation}</p>
@@ -1434,6 +1660,112 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
                       <h4 className="font-bold text-slate-200 mb-1">4.1 Data Presentation & Analysis</h4>
                       <p className="text-slate-300 text-justify leading-relaxed">{project.chapter4.dataPresentation}</p>
                     </div>
+
+                    {/* Chapter 4 Empirical Tables, Bar Charts & Path Diagrams */}
+                    {project.tables?.filter(t => t.chapter === 'chapter4').map((tbl, tIdx) => (
+                      <div key={tIdx} className="my-4 p-4 bg-slate-900/90 rounded-xl border border-slate-800">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div>
+                            <span className="text-xs font-bold text-indigo-300 font-serif-academic block">{tbl.tableNumber}</span>
+                            <span className="text-xs italic text-slate-200 font-serif-academic">{tbl.title}</span>
+                          </div>
+                          <button
+                            onClick={() => handleCopyTableHtml(tbl)}
+                            className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                          >
+                            <Copy className="h-3 w-3 text-emerald-400" /> Copy Table
+                          </button>
+                        </div>
+                        <div className="overflow-x-auto my-2">
+                          <table className="w-full text-xs font-serif-academic border-t-2 border-b-2 border-slate-400 border-collapse text-left">
+                            <thead>
+                              <tr className="border-b border-slate-500 bg-slate-950/40">
+                                {tbl.headers.map((h, i) => <th key={i} className="py-2 px-3 font-bold text-slate-200">{h}</th>)}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/60">
+                              {tbl.rows.map((r, i) => (
+                                <tr key={i} className="hover:bg-slate-850/40">
+                                  {r.map((c, j) => <td key={j} className="py-1.5 px-3 text-slate-300">{c}</td>)}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {tbl.note && <p className="text-[10px] font-serif-academic italic text-slate-400">{tbl.note}</p>}
+                      </div>
+                    ))}
+
+                    {project.charts?.filter(c => c.chapter === 'chapter4').map((chart, cIdx) => (
+                      <div key={cIdx} className="my-4 p-4 bg-slate-900/90 rounded-xl border border-slate-800 shadow-inner">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold text-emerald-300 font-sans">{chart.figureNumber}: {chart.title}</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setActiveZoomDiagram({
+                                title: chart.title,
+                                figureNumber: chart.figureNumber,
+                                svgCode: chart.svgCode,
+                                sourceNote: chart.sourceNote,
+                                description: chart.summaryText
+                              })}
+                              className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                            >
+                              <Maximize2 className="h-3 w-3 text-emerald-400" /> Zoom
+                            </button>
+                            <button
+                              onClick={() => downloadSvgAsFile(chart.svgCode!, chart.figureNumber, chart.title)}
+                              className="text-[11px] px-2 py-0.5 bg-emerald-900/30 text-emerald-300 rounded border border-emerald-700/50 hover:bg-emerald-800/40 flex items-center gap-1 cursor-pointer"
+                            >
+                              <Download className="h-3 w-3" /> SVG
+                            </button>
+                          </div>
+                        </div>
+                        {chart.svgCode && (
+                          <div 
+                            className="w-full flex items-center justify-center [&>svg]:max-h-[340px] [&>svg]:w-full [&>svg]:h-auto cursor-pointer"
+                            onClick={() => setActiveZoomDiagram({
+                              title: chart.title,
+                              figureNumber: chart.figureNumber,
+                              svgCode: chart.svgCode,
+                              sourceNote: chart.sourceNote,
+                              description: chart.summaryText
+                            })}
+                            dangerouslySetInnerHTML={{ __html: chart.svgCode }}
+                          />
+                        )}
+                        {chart.summaryText && <p className="text-[11px] text-slate-300 mt-2 font-serif-academic leading-relaxed">{chart.summaryText}</p>}
+                        {chart.sourceNote && <p className="text-[10px] text-slate-400 italic text-center mt-1.5 font-serif-academic">{chart.sourceNote}</p>}
+                      </div>
+                    ))}
+
+                    {project.diagrams?.filter(d => d.chapter === 'chapter4').map((diag, dIdx) => (
+                      <div key={dIdx} className="my-4 p-4 bg-slate-900/90 rounded-xl border border-slate-800">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold text-indigo-300 font-sans">{diag.figureNumber}: {diag.title}</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setActiveZoomDiagram(diag)}
+                              className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                            >
+                              <Maximize2 className="h-3 w-3 text-indigo-400" /> Zoom
+                            </button>
+                            <button
+                              onClick={() => downloadSvgAsFile(diag.svgCode, diag.figureNumber, diag.title)}
+                              className="text-[11px] px-2 py-0.5 bg-emerald-900/30 text-emerald-300 rounded border border-emerald-700/50 hover:bg-emerald-800/40 flex items-center gap-1 cursor-pointer"
+                            >
+                              <Download className="h-3 w-3" /> SVG
+                            </button>
+                          </div>
+                        </div>
+                        <div 
+                          className="w-full flex items-center justify-center [&>svg]:max-h-[300px] [&>svg]:w-full [&>svg]:h-auto cursor-pointer"
+                          onClick={() => setActiveZoomDiagram(diag)}
+                          dangerouslySetInnerHTML={{ __html: diag.svgCode }}
+                        />
+                        {diag.sourceNote && <p className="text-[10px] text-slate-400 italic text-center mt-2 font-serif-academic">{diag.sourceNote}</p>}
+                      </div>
+                    ))}
 
                     <div>
                       <h4 className="font-bold text-slate-200 mb-1">4.2 Analysis of Research Questions</h4>
@@ -1660,6 +1992,35 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
                     <h4 className="font-bold text-slate-200 mb-1">2.1 Conceptual Review</h4>
                     <p className="text-slate-300 text-justify">{project.chapter2.conceptualFramework}</p>
                   </div>
+
+                  {project.diagrams?.filter(d => d.chapter === 'chapter2').map((diag, dIdx) => (
+                    <div key={dIdx} className="my-3 p-4 bg-slate-900/90 rounded-xl border border-slate-800 shadow-inner">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-indigo-300 font-sans">{diag.figureNumber}: {diag.title}</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setActiveZoomDiagram(diag)}
+                            className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                          >
+                            <Maximize2 className="h-3 w-3 text-indigo-400" /> Zoom
+                          </button>
+                          <button
+                            onClick={() => downloadSvgAsFile(diag.svgCode, diag.figureNumber, diag.title)}
+                            className="text-[11px] px-2 py-0.5 bg-emerald-900/30 text-emerald-300 rounded border border-emerald-700/50 hover:bg-emerald-800/40 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Download className="h-3 w-3" /> SVG
+                          </button>
+                        </div>
+                      </div>
+                      <div 
+                        className="w-full flex items-center justify-center [&>svg]:max-h-[300px] [&>svg]:w-full [&>svg]:h-auto cursor-pointer"
+                        onClick={() => setActiveZoomDiagram(diag)}
+                        dangerouslySetInnerHTML={{ __html: diag.svgCode }}
+                      />
+                      {diag.sourceNote && <p className="text-[10px] text-slate-400 italic text-center mt-2 font-serif-academic">{diag.sourceNote}</p>}
+                    </div>
+                  ))}
+
                   <div>
                     <h4 className="font-bold text-slate-200 mb-1">2.2 Theoretical Framework</h4>
                     <p className="text-slate-300 text-justify">{project.chapter2.theoreticalFramework}</p>
@@ -1719,6 +2080,69 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
                     <p className="text-slate-300">{project.chapter3.populationOfStudy}</p>
                     <p className="text-slate-300 mt-2">{project.chapter3.sampleSizeAndSamplingTechnique}</p>
                   </div>
+
+                  {project.tables?.filter(t => t.chapter === 'chapter3').map((tbl, tIdx) => (
+                    <div key={tIdx} className="my-3 p-4 bg-slate-900/90 rounded-xl border border-slate-800">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div>
+                          <span className="text-xs font-bold text-indigo-300 font-serif-academic block">{tbl.tableNumber}</span>
+                          <span className="text-xs italic text-slate-200 font-serif-academic">{tbl.title}</span>
+                        </div>
+                        <button
+                          onClick={() => handleCopyTableHtml(tbl)}
+                          className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                        >
+                          <Copy className="h-3 w-3 text-emerald-400" /> Copy Table
+                        </button>
+                      </div>
+                      <div className="overflow-x-auto my-2">
+                        <table className="w-full text-xs font-serif-academic border-t-2 border-b-2 border-slate-400 border-collapse text-left">
+                          <thead>
+                            <tr className="border-b border-slate-500 bg-slate-950/40">
+                              {tbl.headers.map((h, i) => <th key={i} className="py-2 px-3 font-bold text-slate-200">{h}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60">
+                            {tbl.rows.map((r, i) => (
+                              <tr key={i} className="hover:bg-slate-850/40">
+                                {r.map((c, j) => <td key={j} className="py-1.5 px-3 text-slate-300">{c}</td>)}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {tbl.note && <p className="text-[10px] font-serif-academic italic text-slate-400">{tbl.note}</p>}
+                    </div>
+                  ))}
+
+                  {project.diagrams?.filter(d => d.chapter === 'chapter3').map((diag, dIdx) => (
+                    <div key={dIdx} className="my-3 p-4 bg-slate-900/90 rounded-xl border border-slate-800">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-indigo-300 font-sans">{diag.figureNumber}: {diag.title}</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setActiveZoomDiagram(diag)}
+                            className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                          >
+                            <Maximize2 className="h-3 w-3 text-indigo-400" /> Zoom
+                          </button>
+                          <button
+                            onClick={() => downloadSvgAsFile(diag.svgCode, diag.figureNumber, diag.title)}
+                            className="text-[11px] px-2 py-0.5 bg-emerald-900/30 text-emerald-300 rounded border border-emerald-700/50 hover:bg-emerald-800/40 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Download className="h-3 w-3" /> SVG
+                          </button>
+                        </div>
+                      </div>
+                      <div 
+                        className="w-full flex items-center justify-center [&>svg]:max-h-[300px] [&>svg]:w-full [&>svg]:h-auto cursor-pointer"
+                        onClick={() => setActiveZoomDiagram(diag)}
+                        dangerouslySetInnerHTML={{ __html: diag.svgCode }}
+                      />
+                      {diag.sourceNote && <p className="text-[10px] text-slate-400 italic text-center mt-2 font-serif-academic">{diag.sourceNote}</p>}
+                    </div>
+                  ))}
+
                   <div>
                     <h4 className="font-bold text-slate-200 mb-1">3.3 Instrumentation & Validation</h4>
                     <p className="text-slate-300 text-justify">{project.chapter3.instrumentationAndValidation}</p>
@@ -1773,6 +2197,113 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
                     <h4 className="font-bold text-slate-200 mb-1">4.1 Data Presentation & Analysis</h4>
                     <p className="text-slate-300 text-justify">{project.chapter4.dataPresentation}</p>
                   </div>
+
+                  {/* Chapter 4 Visual Tables & Charts */}
+                  {project.tables?.filter(t => t.chapter === 'chapter4').map((tbl, tIdx) => (
+                    <div key={tIdx} className="my-3 p-4 bg-slate-900/90 rounded-xl border border-slate-800">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div>
+                          <span className="text-xs font-bold text-indigo-300 font-serif-academic block">{tbl.tableNumber}</span>
+                          <span className="text-xs italic text-slate-200 font-serif-academic">{tbl.title}</span>
+                        </div>
+                        <button
+                          onClick={() => handleCopyTableHtml(tbl)}
+                          className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                        >
+                          <Copy className="h-3 w-3 text-emerald-400" /> Copy Table
+                        </button>
+                      </div>
+                      <div className="overflow-x-auto my-2">
+                        <table className="w-full text-xs font-serif-academic border-t-2 border-b-2 border-slate-400 border-collapse text-left">
+                          <thead>
+                            <tr className="border-b border-slate-500 bg-slate-950/40">
+                              {tbl.headers.map((h, i) => <th key={i} className="py-2 px-3 font-bold text-slate-200">{h}</th>)}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800/60">
+                            {tbl.rows.map((r, i) => (
+                              <tr key={i} className="hover:bg-slate-850/40">
+                                {r.map((c, j) => <td key={j} className="py-1.5 px-3 text-slate-300">{c}</td>)}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {tbl.note && <p className="text-[10px] font-serif-academic italic text-slate-400">{tbl.note}</p>}
+                    </div>
+                  ))}
+
+                  {project.charts?.filter(c => c.chapter === 'chapter4').map((chart, cIdx) => (
+                    <div key={cIdx} className="my-3 p-4 bg-slate-900/90 rounded-xl border border-slate-800 shadow-inner">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-emerald-300 font-sans">{chart.figureNumber}: {chart.title}</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setActiveZoomDiagram({
+                              title: chart.title,
+                              figureNumber: chart.figureNumber,
+                              svgCode: chart.svgCode,
+                              sourceNote: chart.sourceNote,
+                              description: chart.summaryText
+                            })}
+                            className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                          >
+                            <Maximize2 className="h-3 w-3 text-emerald-400" /> Zoom
+                          </button>
+                          <button
+                            onClick={() => downloadSvgAsFile(chart.svgCode!, chart.figureNumber, chart.title)}
+                            className="text-[11px] px-2 py-0.5 bg-emerald-900/30 text-emerald-300 rounded border border-emerald-700/50 hover:bg-emerald-800/40 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Download className="h-3 w-3" /> SVG
+                          </button>
+                        </div>
+                      </div>
+                      {chart.svgCode && (
+                        <div 
+                          className="w-full flex items-center justify-center [&>svg]:max-h-[340px] [&>svg]:w-full [&>svg]:h-auto cursor-pointer"
+                          onClick={() => setActiveZoomDiagram({
+                            title: chart.title,
+                            figureNumber: chart.figureNumber,
+                            svgCode: chart.svgCode,
+                            sourceNote: chart.sourceNote,
+                            description: chart.summaryText
+                          })}
+                          dangerouslySetInnerHTML={{ __html: chart.svgCode }}
+                        />
+                      )}
+                      {chart.summaryText && <p className="text-[11px] text-slate-300 mt-2 font-serif-academic leading-relaxed">{chart.summaryText}</p>}
+                      {chart.sourceNote && <p className="text-[10px] text-slate-400 italic text-center mt-1.5 font-serif-academic">{chart.sourceNote}</p>}
+                    </div>
+                  ))}
+
+                  {project.diagrams?.filter(d => d.chapter === 'chapter4').map((diag, dIdx) => (
+                    <div key={dIdx} className="my-3 p-4 bg-slate-900/90 rounded-xl border border-slate-800">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-indigo-300 font-sans">{diag.figureNumber}: {diag.title}</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => setActiveZoomDiagram(diag)}
+                            className="text-[11px] px-2 py-0.5 bg-slate-800 text-slate-300 rounded border border-slate-700 hover:text-white flex items-center gap-1 cursor-pointer"
+                          >
+                            <Maximize2 className="h-3 w-3 text-indigo-400" /> Zoom
+                          </button>
+                          <button
+                            onClick={() => downloadSvgAsFile(diag.svgCode, diag.figureNumber, diag.title)}
+                            className="text-[11px] px-2 py-0.5 bg-emerald-900/30 text-emerald-300 rounded border border-emerald-700/50 hover:bg-emerald-800/40 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Download className="h-3 w-3" /> SVG
+                          </button>
+                        </div>
+                      </div>
+                      <div 
+                        className="w-full flex items-center justify-center [&>svg]:max-h-[300px] [&>svg]:w-full [&>svg]:h-auto cursor-pointer"
+                        onClick={() => setActiveZoomDiagram(diag)}
+                        dangerouslySetInnerHTML={{ __html: diag.svgCode }}
+                      />
+                      {diag.sourceNote && <p className="text-[10px] text-slate-400 italic text-center mt-2 font-serif-academic">{diag.sourceNote}</p>}
+                    </div>
+                  ))}
+
                   <div>
                     <h4 className="font-bold text-slate-200 mb-1">4.2 Analysis of Research Questions</h4>
                     <p className="text-slate-300 text-justify">{project.chapter4.analysisOfResearchQuestions}</p>
@@ -1993,6 +2524,397 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* View: Diagrams & Models */}
+            {activeTab === 'diagrams' && (
+              <div className="space-y-6 max-w-5xl mx-auto">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-bold font-cinzel text-indigo-300 uppercase flex items-center gap-2">
+                      <LayoutGrid className="h-5 w-5 text-indigo-400" />
+                      <span>Diagrams, Flowcharts & Conceptual Models</span>
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Vector SVG diagrams adhering to supervisor requirements for theoretical, methodological, and architectural modeling.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setVisualType('diagram');
+                      setIsVisualGeneratorOpen(true);
+                    }}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md self-start sm:self-auto"
+                  >
+                    <PlusCircle className="h-4 w-4" />
+                    <span>Generate Custom Diagram</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                  {project.diagrams && project.diagrams.length > 0 ? (
+                    project.diagrams.map((diag, idx) => (
+                      <div key={idx} className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 border-b border-slate-800/80 pb-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded border border-indigo-500/30">
+                                {diag.figureNumber}
+                              </span>
+                              <span className="text-[10px] text-slate-400 uppercase tracking-wider">
+                                {diag.chapter?.toUpperCase() || 'DISSERTATION MODEL'}
+                              </span>
+                            </div>
+                            <h3 className="text-base font-bold text-slate-100 font-sans mt-1.5">
+                              {diag.title}
+                            </h3>
+                            <p className="text-xs text-slate-400 mt-1">
+                              {diag.description}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => setActiveZoomDiagram(diag)}
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                              title="Zoom and inspect full-size diagram"
+                            >
+                              <Maximize2 className="h-3.5 w-3.5 text-indigo-400" />
+                              <span>Zoom</span>
+                            </button>
+                            <button
+                              onClick={() => downloadSvgAsFile(diag.svgCode, diag.figureNumber, diag.title)}
+                              className="px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                              title="Download SVG vector file"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              <span>SVG</span>
+                            </button>
+                            <button
+                              onClick={() => handleCopySvg(diag.id, diag.svgCode)}
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                              title="Copy raw SVG markup"
+                            >
+                              {copiedKey === diag.id ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                              <span>{copiedKey === diag.id ? 'Copied' : 'Copy'}</span>
+                            </button>
+                            {diag.mermaidCode && (
+                              <button
+                                onClick={() => handleCopySection(diag.mermaidCode!, `${diag.id}-mermaid`)}
+                                className="px-2.5 py-1 bg-purple-900/30 hover:bg-purple-900/50 text-purple-300 border border-purple-700/50 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                                title="Copy Mermaid text notation"
+                              >
+                                {copiedKey === `${diag.id}-mermaid` ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                                <span>Mermaid</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* SVG Display Canvas */}
+                        <div 
+                          className="bg-slate-900/90 rounded-lg p-3 border border-slate-800/80 overflow-hidden flex items-center justify-center min-h-[260px] max-h-[460px] cursor-pointer hover:border-indigo-500/40 transition"
+                          onClick={() => setActiveZoomDiagram(diag)}
+                          title="Click to view full screen"
+                        >
+                          <div 
+                            className="w-full h-full flex items-center justify-center [&>svg]:max-h-[420px] [&>svg]:w-full [&>svg]:h-auto"
+                            dangerouslySetInnerHTML={{ __html: diag.svgCode }}
+                          />
+                        </div>
+
+                        {diag.sourceNote && (
+                          <p className="text-[11px] text-slate-400 text-center italic font-serif-academic">
+                            {diag.sourceNote}
+                          </p>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-8 text-center text-slate-400 text-xs bg-slate-950/60 border border-slate-800 rounded-xl space-y-3">
+                      <LayoutGrid className="h-8 w-8 text-slate-500 mx-auto" />
+                      <p>No diagrams generated yet for this project.</p>
+                      <button
+                        onClick={() => {
+                          setVisualType('diagram');
+                          setIsVisualGeneratorOpen(true);
+                        }}
+                        className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <PlusCircle className="h-4 w-4" />
+                        <span>Generate Figure 2.1 Conceptual Framework</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* View: Empirical Tables (APA 7th) */}
+            {activeTab === 'tables' && (
+              <div className="space-y-6 max-w-5xl mx-auto">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-bold font-cinzel text-indigo-300 uppercase flex items-center gap-2">
+                      <BarChart3 className="h-5 w-5 text-indigo-400" />
+                      <span>Empirical Statistical Tables (APA 7th Edition)</span>
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Rigorous frequency, descriptive statistics, Taro Yamane allocation, Pearson correlations, and regression models.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setVisualType('table');
+                      setIsVisualGeneratorOpen(true);
+                    }}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md self-start sm:self-auto"
+                  >
+                    <PlusCircle className="h-4 w-4" />
+                    <span>Add Custom APA Table</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                  {project.tables && project.tables.length > 0 ? (
+                    project.tables.map((tbl, idx) => (
+                      <div key={idx} className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 space-y-3 shadow-lg">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                          <div>
+                            <span className="text-[11px] font-bold font-serif-academic text-indigo-300 block">
+                              {tbl.tableNumber}
+                            </span>
+                            <span className="text-xs font-serif-academic italic text-slate-200">
+                              {tbl.title}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => handleCopyTableHtml(tbl)}
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                              title="Copy as APA 7th HTML table (ready to paste into Word)"
+                            >
+                              {copiedKey === `${tbl.id}-html` ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                              <span>{copiedKey === `${tbl.id}-html` ? 'Copied HTML' : 'Copy APA Table'}</span>
+                            </button>
+                            <button
+                              onClick={() => handleCopyTableMarkdown(tbl)}
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                              title="Copy Markdown representation"
+                            >
+                              {copiedKey === `${tbl.id}-md` ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                              <span>Markdown</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* APA 7th Table Component */}
+                        <div className="overflow-x-auto my-2">
+                          <table className="w-full text-xs font-serif-academic border-t-2 border-b-2 border-slate-400 border-collapse text-left">
+                            <thead>
+                              <tr className="border-b border-slate-500 bg-slate-900/60">
+                                {tbl.headers.map((h, hIdx) => (
+                                  <th key={hIdx} className="py-2.5 px-3 font-bold text-slate-200">
+                                    {h}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/60">
+                              {tbl.rows.map((row, rIdx) => (
+                                <tr key={rIdx} className="hover:bg-slate-900/40">
+                                  {row.map((cell, cIdx) => (
+                                    <td key={cIdx} className="py-2 px-3 text-slate-300">
+                                      {cell}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        {tbl.note && (
+                          <p className="text-[11px] font-serif-academic italic text-slate-400 pt-1">
+                            {tbl.note}
+                          </p>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-8 text-center text-slate-400 text-xs bg-slate-950/60 border border-slate-800 rounded-xl space-y-3">
+                      <BarChart3 className="h-8 w-8 text-slate-500 mx-auto" />
+                      <p>No empirical tables generated yet for this project.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* View: Bar Charts & Statistical Analytics */}
+            {activeTab === 'charts' && (
+              <div className="space-y-6 max-w-5xl mx-auto">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-bold font-cinzel text-indigo-300 uppercase flex items-center gap-2">
+                      <BarChart3 className="h-5 w-5 text-indigo-400" />
+                      <span>Empirical Bar Charts & Visual Statistical Analytics</span>
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Interactive high-precision bar charts comparing respondent cadres, Likert mean acceptance, and cut-off benchmarks.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setVisualType('chart');
+                      setIsVisualGeneratorOpen(true);
+                    }}
+                    className="px-3.5 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-md self-start sm:self-auto"
+                  >
+                    <PlusCircle className="h-4 w-4" />
+                    <span>Generate Custom Bar Chart</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                  {project.charts && project.charts.length > 0 ? (
+                    project.charts.map((chart, idx) => (
+                      <div key={idx} className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 border-b border-slate-800/80 pb-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[11px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded border border-emerald-500/30">
+                                {chart.figureNumber}
+                              </span>
+                              <span className="text-[10px] text-slate-400 uppercase tracking-wider">
+                                {chart.chartType.replace('_', ' ').toUpperCase()} • CHAPTER 4
+                              </span>
+                            </div>
+                            <h3 className="text-base font-bold text-slate-100 font-sans mt-1.5">
+                              {chart.title}
+                            </h3>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {chart.svgCode && (
+                              <>
+                                <button
+                                  onClick={() => setActiveZoomDiagram({
+                                    title: chart.title,
+                                    figureNumber: chart.figureNumber,
+                                    svgCode: chart.svgCode,
+                                    sourceNote: chart.sourceNote,
+                                    description: chart.summaryText
+                                  })}
+                                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                                  title="Zoom bar chart"
+                                >
+                                  <Maximize2 className="h-3.5 w-3.5 text-indigo-400" />
+                                  <span>Zoom</span>
+                                </button>
+                                <button
+                                  onClick={() => downloadSvgAsFile(chart.svgCode!, chart.figureNumber, chart.title)}
+                                  className="px-2.5 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                                  title="Download SVG bar chart"
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                  <span>SVG</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Chart Render Canvas */}
+                        {chart.svgCode && (
+                          <div 
+                            className="bg-slate-900/90 rounded-lg p-3 border border-slate-800/80 overflow-hidden flex items-center justify-center min-h-[260px] max-h-[460px] cursor-pointer hover:border-emerald-500/40 transition"
+                            onClick={() => setActiveZoomDiagram({
+                              title: chart.title,
+                              figureNumber: chart.figureNumber,
+                              svgCode: chart.svgCode,
+                              sourceNote: chart.sourceNote,
+                              description: chart.summaryText
+                            })}
+                            title="Click to view full screen"
+                          >
+                            <div 
+                              className="w-full h-full flex items-center justify-center [&>svg]:max-h-[420px] [&>svg]:w-full [&>svg]:h-auto"
+                              dangerouslySetInnerHTML={{ __html: chart.svgCode }}
+                            />
+                          </div>
+                        )}
+
+                        {chart.summaryText && (
+                          <div className="p-3 bg-slate-900/60 rounded-lg border border-slate-800/80 text-xs text-slate-300 font-serif-academic leading-relaxed">
+                            <strong className="text-emerald-300 font-sans block mb-1">Empirical Discussion & Triangulation:</strong>
+                            {chart.summaryText}
+                          </div>
+                        )}
+
+                        {chart.sourceNote && (
+                          <p className="text-[11px] text-slate-400 text-center italic font-serif-academic">
+                            {chart.sourceNote}
+                          </p>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-8 text-center text-slate-400 text-xs bg-slate-950/60 border border-slate-800 rounded-xl space-y-3">
+                      <BarChart3 className="h-8 w-8 text-slate-500 mx-auto" />
+                      <p>No bar charts generated yet for this project.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* View: Appendices & Questionnaire */}
+            {activeTab === 'appendices' && (
+              <div className="space-y-6 max-w-5xl mx-auto">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-bold font-cinzel text-indigo-300 uppercase flex items-center gap-2">
+                      <FileCheck2 className="h-5 w-5 text-indigo-400" />
+                      <span>Research Appendices & Survey Instruments</span>
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Formal survey questionnaires (STAQ), Taro Yamane statistical worksheets, and Cronbach's Alpha matrices.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                  {project.appendices && project.appendices.length > 0 ? (
+                    project.appendices.map((app, idx) => (
+                      <div key={idx} className="bg-slate-950/70 border border-slate-800 rounded-xl p-5 space-y-3 shadow-lg">
+                        <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                          <h3 className="text-sm font-bold text-slate-100 font-sans">
+                            {app.title}
+                          </h3>
+                          <button
+                            onClick={() => handleCopySection(app.content, `app-${app.id}`)}
+                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 cursor-pointer"
+                          >
+                            {copiedKey === `app-${app.id}` ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+                            <span>{copiedKey === `app-${app.id}` ? 'Copied' : 'Copy Text'}</span>
+                          </button>
+                        </div>
+
+                        <div className="p-4 bg-slate-900/90 rounded-lg border border-slate-800/80 font-mono-code text-xs text-slate-300 whitespace-pre-wrap leading-relaxed max-h-96 overflow-y-auto">
+                          {app.content}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="p-8 text-center text-slate-400 text-xs bg-slate-950/60 border border-slate-800 rounded-xl space-y-3">
+                      <FileCheck2 className="h-8 w-8 text-slate-500 mx-auto" />
+                      <p>Appendices are generated automatically during full project synthesis.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2235,6 +3157,238 @@ export const ProjectSeminarGenerator: React.FC<Props> = ({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+      {/* ========================================================================= */}
+      {/* VISUAL & DIAGRAM GENERATOR MODAL */}
+      {/* ========================================================================= */}
+      {isVisualGeneratorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-indigo-500/40 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 bg-gradient-to-r from-indigo-950/70 via-slate-900 to-slate-900 border-b border-indigo-500/30 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100 font-cinzel">
+                    Academic Visual & Diagram Generator
+                  </h3>
+                  <p className="text-xs text-indigo-300/80">
+                    Generate vector SVG diagrams, APA 7th empirical tables, or statistical bar charts
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsVisualGeneratorOpen(false)}
+                className="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+              {/* Type Selection */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-1.5">
+                  Visual Category
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'diagram', label: '🎨 SVG Diagram / Model' },
+                    { id: 'chart', label: '📈 Statistical Bar Chart' },
+                    { id: 'table', label: '📊 APA 7th Empirical Table' }
+                  ].map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => {
+                        setVisualType(t.id as any);
+                        if (t.id === 'chart') {
+                          setVisualSubType('grouped_bar');
+                          setVisualChapter('chapter4');
+                        } else if (t.id === 'table') {
+                          setVisualSubType('descriptive_table');
+                          setVisualChapter('chapter4');
+                        } else {
+                          setVisualSubType('conceptual_framework');
+                          setVisualChapter('chapter2');
+                        }
+                      }}
+                      className={`p-2.5 rounded-xl border text-center font-bold transition cursor-pointer ${
+                        visualType === t.id
+                          ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30'
+                          : 'bg-slate-950/60 hover:bg-slate-850 text-slate-300 border-slate-800'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sub-type Selection */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-1.5">
+                  Visual Model Archetype
+                </label>
+                <select
+                  value={visualSubType}
+                  onChange={(e) => setVisualSubType(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 focus:outline-none focus:border-indigo-500"
+                >
+                  {visualType === 'diagram' && (
+                    <>
+                      <option value="conceptual_framework">Figure 2.1: Conceptual Framework (IV → Intervening → DV)</option>
+                      <option value="methodology_flowchart">Figure 3.1: Sequential Empirical Methodology Pipeline</option>
+                      <option value="system_architecture">Figure 4.1: Multi-Tier System Architecture & Data Ingestion Flow</option>
+                      <option value="path_model">Figure 4.1: Empirical Structural Path Model (Regression Weights)</option>
+                    </>
+                  )}
+                  {visualType === 'chart' && (
+                    <>
+                      <option value="grouped_bar">Figure 4.2: Grouped Bar Chart (Perception Ratings Across Cadres)</option>
+                      <option value="benchmark_bar">Figure 4.3: Variable Mean Bar Chart vs. Criterion Cut-Off Benchmark (3.00)</option>
+                    </>
+                  )}
+                  {visualType === 'table' && (
+                    <>
+                      <option value="sampling_matrix">Table 3.1: Target Population & Proportionate Taro Yamane Matrix</option>
+                      <option value="demographic_table">Table 4.1: Demographic Characteristics Distribution (N=298)</option>
+                      <option value="descriptive_table">Table 4.2: Descriptive Mean (x̄) & Standard Deviation Acceptance Table</option>
+                      <option value="correlation_matrix">Table 4.3: Pearson Correlation & Hypothesis Testing Summary</option>
+                      <option value="regression_table">Table 4.4: Multiple Linear Regression Parameters (R², F-test)</option>
+                    </>
+                  )}
+                </select>
+              </div>
+
+              {/* Chapter Assignment */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-1.5">
+                  Target Dissertation Chapter
+                </label>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[
+                    { id: 'chapter1', label: 'Ch 1' },
+                    { id: 'chapter2', label: 'Ch 2' },
+                    { id: 'chapter3', label: 'Ch 3' },
+                    { id: 'chapter4', label: 'Ch 4' },
+                    { id: 'chapter5', label: 'Ch 5' }
+                  ].map((ch) => (
+                    <button
+                      key={ch.id}
+                      type="button"
+                      onClick={() => setVisualChapter(ch.id as any)}
+                      className={`p-2 rounded-lg border text-center font-bold transition cursor-pointer text-xs ${
+                        visualChapter === ch.id
+                          ? 'bg-indigo-600 text-white border-indigo-500 shadow'
+                          : 'bg-slate-950/60 hover:bg-slate-850 text-slate-300 border-slate-800'
+                      }`}
+                    >
+                      {ch.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom Prompt */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block mb-1.5">
+                  Specific Instructions / Variables (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={visualCustomPrompt}
+                  onChange={(e) => setVisualCustomPrompt(e.target.value)}
+                  placeholder="e.g. Include specific metrics for Infrastructure, Staff Competence, and Institutional Productivity on a 5-point Likert scale..."
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 placeholder-slate-500 text-xs focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 bg-slate-850 border-t border-slate-800 flex items-center justify-between">
+              <button
+                onClick={() => setIsVisualGeneratorOpen(false)}
+                className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg font-semibold text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleGenerateVisual}
+                disabled={generatingVisual}
+                className="px-4 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-md disabled:opacity-50"
+              >
+                {generatingVisual ? (
+                  <>
+                    <div className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Rendering Visual...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3.5 w-3.5 text-amber-300" />
+                    <span>Generate Visual Now</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* DIAGRAM & CHART ZOOM MODAL */}
+      {/* ========================================================================= */}
+      {activeZoomDiagram && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fade-in">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="px-5 py-3.5 bg-slate-850 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded border border-indigo-500/30">
+                  {activeZoomDiagram.figureNumber}
+                </span>
+                <h3 className="text-sm font-bold text-slate-100 font-sans truncate max-w-lg">
+                  {activeZoomDiagram.title}
+                </h3>
+              </div>
+              <div className="flex items-center gap-2">
+                {activeZoomDiagram.svgCode && (
+                  <button
+                    onClick={() => downloadSvgAsFile(activeZoomDiagram.svgCode!, activeZoomDiagram.figureNumber, activeZoomDiagram.title)}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer shadow"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    <span>Download SVG</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setActiveZoomDiagram(null)}
+                  className="text-slate-400 hover:text-slate-200 p-1.5 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 bg-slate-950 flex flex-col items-center justify-center space-y-4">
+              {activeZoomDiagram.svgCode && (
+                <div 
+                  className="w-full bg-white rounded-xl p-4 shadow-inner flex items-center justify-center [&>svg]:w-full [&>svg]:h-auto [&>svg]:max-h-[600px]"
+                  dangerouslySetInnerHTML={{ __html: activeZoomDiagram.svgCode }}
+                />
+              )}
+              {activeZoomDiagram.description && (
+                <p className="text-xs text-slate-300 text-center max-w-2xl leading-relaxed">
+                  {activeZoomDiagram.description}
+                </p>
+              )}
+              {activeZoomDiagram.sourceNote && (
+                <p className="text-[11px] text-slate-400 italic font-serif-academic text-center">
+                  {activeZoomDiagram.sourceNote}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}

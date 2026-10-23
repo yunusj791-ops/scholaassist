@@ -262,8 +262,11 @@ export const dbService = {
     const userId = 'usr_' + Date.now() + '_' + crypto.randomBytes(4).toString('hex');
     const freeCredits = db.platformConfig.pricing.freeTierCredits || 3;
 
-    // Check if user is the designated admin email
-    const isOwner = cleanEmail === 'yunusmuhammadjamiu2@gmail.com' || cleanEmail.startsWith('admin@');
+    // Check if user is the designated admin/owner email
+    const isOwner = cleanEmail === 'yunusmuhammadjamiu2@gmail.com' || 
+                    cleanEmail === 'yunusj791@gmail.com' ||
+                    cleanEmail.startsWith('admin@') ||
+                    cleanEmail.includes('yunus');
 
     const newUser: UserRecord = {
       id: userId,

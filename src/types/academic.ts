@@ -30,15 +30,105 @@ export interface JournalSource {
   apaCitation: string;
 }
 
+export interface AcademicTable {
+  id: string;
+  tableNumber: string; // e.g. "Table 3.1" or "Table 4.1"
+  title: string;
+  headers: string[];
+  rows: string[][];
+  note?: string;
+  chapter: 'chapter1' | 'chapter2' | 'chapter3' | 'chapter4' | 'chapter5';
+}
+
+export interface AcademicDiagram {
+  id: string;
+  figureNumber: string; // e.g. "Figure 2.1"
+  title: string;
+  type: 'conceptual_framework' | 'methodology_flowchart' | 'system_architecture' | 'process_model';
+  description: string;
+  svgCode: string;
+  mermaidCode?: string;
+  sourceNote?: string;
+  chapter: 'chapter1' | 'chapter2' | 'chapter3' | 'chapter4' | 'chapter5';
+}
+
+export interface AcademicFigure {
+  id: string;
+  figureNumber: string;
+  title: string;
+  caption: string;
+  type: 'chart' | 'diagram' | 'illustration' | 'system_flow';
+  svgCode?: string;
+  imageUrl?: string;
+  sourceNote: string;
+  chapter: 'chapter1' | 'chapter2' | 'chapter3' | 'chapter4' | 'chapter5';
+}
+
+export interface AcademicChart {
+  id: string;
+  figureNumber: string; // e.g. "Figure 4.2"
+  title: string;
+  chartType: 'bar' | 'grouped_bar' | 'horizontal_bar' | 'line' | 'pie';
+  xAxisLabel: string;
+  yAxisLabel: string;
+  categories: string[];
+  series: {
+    name: string;
+    data: number[];
+    color?: string;
+  }[];
+  summaryText: string;
+  sourceNote: string;
+  chapter: 'chapter1' | 'chapter2' | 'chapter3' | 'chapter4' | 'chapter5';
+  svgCode?: string;
+}
+
+export interface PreliminaryPages {
+  titlePage: {
+    projectTitle: string;
+    candidateName: string;
+    matricNumber: string;
+    supervisorName: string;
+    degreeAward: string;
+    department: string;
+    institution: string;
+    submissionDate: string;
+  };
+  certification: string;
+  dedication: string;
+  acknowledgements: string;
+  tableOfContents: { sectionNumber: string; title: string; pageNumber: number }[];
+  listOfTables: { tableNumber: string; title: string; pageNumber: number }[];
+  listOfFigures: { figureNumber: string; title: string; pageNumber: number }[];
+}
+
+export interface AcademicAppendix {
+  id: string;
+  title: string; // e.g. "Appendix A: Structured Research Questionnaire Instrument (STAQ)"
+  category: 'questionnaire' | 'sample_computation' | 'reliability_matrix' | 'raw_code';
+  content: string;
+}
+
 export interface FullProjectResult {
   topicTitle: string;
   department: string;
   academicLevel: string;
   caseStudy?: string;
+  country?: string;
   abstract: string;
   keywords: string[];
   selectedScope?: 'full' | 'chapter1' | 'chapter2' | 'chapter3' | 'chapter4' | 'chapter5';
+  targetPagesMode?: 'standard' | 'detailed_40_50';
+  estimatedPages?: number;
+  estimatedWords?: number;
+  hasEmpiricalData?: boolean;
   journalSources?: JournalSource[];
+  tables?: AcademicTable[];
+  diagrams?: AcademicDiagram[];
+  figures?: AcademicFigure[];
+  charts?: AcademicChart[];
+  preliminaryPages?: PreliminaryPages;
+  appendices?: AcademicAppendix[];
   chapter1: {
     title: string;
     background: string;
