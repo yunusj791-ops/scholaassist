@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -1590,10 +1591,14 @@ app.post('/api/payments/verify-international', (req: Request, res: Response) => 
 
 // Setup Vite dev server or static production serving
 async function startServer() {
+  const httpServer = http.createServer(app);
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
+    const hmrDisabled = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      // Share the app's HTTP server so the HMR WebSocket goes through the same port as the preview proxy.
+      server: { middlewareMode: true, ws: hmrDisabled ? false : { server: httpServer } },
       appType: 'spa',
     });
     app.use(vite.middlewares);
@@ -1604,7 +1609,7 @@ async function startServer() {
     });
   }
 
-  app.listen(port, '0.0.0.0', () => {
+  httpServer.listen(port, '0.0.0.0', () => {
     console.log(`ScholarAssist server running on http://0.0.0.0:${port}`);
   });
 }
